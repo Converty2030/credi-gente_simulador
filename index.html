@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simulador de Negociação — Converty</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+  <!-- SheetJS: leitura do politicas.xlsx -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- html2pdf: geração de PDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #e9ecf2;
+      --surface:  #ffffff;
+      --border:   #d1d9e6;
+      --text:     #0d1a2a;
+      --muted:    #5a6a7e;
+      --head:     #0b1f35;
+      --acc:      #3b9ede;
+      --tbl-head: #1e2d3e;
+      --c1: #12375a; --c2: #1a5235; --c3: #5b2583;
+      --p1: #0d6e3f; --p2: #1a6b6b; --p3: #1a4da0;
+      --p4: #4a2080; --p5: #8b1a1a;
+      --radius: 8px;
+      --font: 'IBM Plex Sans', system-ui, sans-serif;
+      --mono: 'IBM Plex Mono', monospace;
+    }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ── LOADING OVERLAY ─────────────────────────────────── */
+    #loading-overlay {
+      position: fixed; inset: 0;
+      background: rgba(11, 31, 53, 0.92);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 1000; gap: 20px;
+      color: #fff;
+    }
+    .spinner {
+      width: 48px; height: 48px;
+      border: 5px solid rgba(255,255,255,0.2);
+      border-top-color: var(--acc);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-txt { font-size: 16px; font-weight: 500; color: #90b8d8; }
+
+    /* ── ERRO OVERLAY ────────────────────────────────────── */
+    #erro-overlay {
+      position: fixed; inset: 0;
+      background: rgba(11, 31, 53, 0.95);
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 1000; padding: 24px;
+    }
+    .erro-box {
+      background: #1e2d3e;
+      border: 1px solid #8b1a1a;
+      border-radius: var(--radius);
+      padding: 32px 36px;
+      max-width: 560px;
+      text-align: center;
+      color: #fff;
+    }
+    .erro-box h2 { color: #fc8181; font-size: 18px; margin-bottom: 12px; }
+    .erro-box p  { font-size: 14px; color: #90b8d8; line-height: 1.7; }
+    .erro-box code {
+      display: inline-block; background: #0b1f35;
+      padding: 2px 8px; border-radius: 4px;
+      font-family: var(--mono); font-size: 13px;
+      color: #63b3ed;
+    }
+
+    /* ── HEADER ──────────────────────────────────────────── */
+    #header {
+      background: var(--head); color: #fff;
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 14px 32px;
+      position: sticky; top: 0; z-index: 200;
+      border-bottom: 3px solid var(--acc);
+    }
+    .brand-name { font-size: 17px; font-weight: 700; letter-spacing: -.2px; }
+    .brand-sub  { font-size: 12px; color: #90b8d8; margin-top: 2px; }
+    .clock-date { font-size: 12px; color: #90b8d8; text-align: right; }
+    .clock-time {
+      font-family: var(--mono); font-size: 22px;
+      color: var(--acc); letter-spacing: 1.5px;
+      margin-top: 2px; text-align: right;
+    }
+
+    /* ── CONTAINER ───────────────────────────────────────── */
+    .wrap { max-width: 1160px; margin: 0 auto; padding: 22px 20px 48px; }
+
+    /* ── TOP KPI CARDS ───────────────────────────────────── */
+    .top-strip {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 12px; margin-bottom: 16px;
+    }
+    .kpi { border-radius: var(--radius); padding: 18px 20px; color: #fff; }
+    .kpi-label {
+      font-size: 10px; font-weight: 600;
+      letter-spacing: .6px; opacity: .72;
+      margin-bottom: 8px; text-transform: uppercase;
+    }
+    .kpi-value { font-size: 26px; font-weight: 700; font-family: var(--mono); line-height: 1; }
+    .kpi-sub   { font-size: 11px; opacity: .55; margin-top: 5px; }
+    .kpi-1 { background: var(--c1); }
+    .kpi-2 { background: var(--c2); }
+    .kpi-3 { background: var(--c3); }
+
+    /* ── SECTION ─────────────────────────────────────────── */
+    .section {
+      background: var(--surface); border-radius: var(--radius);
+      padding: 18px 20px; margin-bottom: 14px;
+      border: 1px solid var(--border);
+    }
+    .section-title {
+      font-size: 11px; font-weight: 700;
+      letter-spacing: .5px; color: var(--muted);
+      padding-bottom: 12px; border-bottom: 1px solid var(--border);
+      margin-bottom: 16px; text-transform: uppercase;
+    }
+
+    /* ── FORM ────────────────────────────────────────────── */
+    .form-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
+    .fg { display: flex; flex-direction: column; gap: 5px; }
+    .fg.grow { flex: 1; min-width: 220px; }
+    .fg label { font-size: 11px; font-weight: 600; color: var(--muted); }
+
+    input[type="text"].field {
+      padding: 9px 13px; border: 1.5px solid var(--border);
+      border-radius: 6px; font-family: var(--font);
+      font-size: 14px; color: var(--text);
+      background: #f7f9fc; width: 100%;
+      transition: border-color .14s, background .14s;
+    }
+    input[type="text"].field:focus { outline: none; border-color: var(--acc); background: #fff; }
+
+    /* tipo de devedor */
+    .tipo-sel { display: flex; gap: 8px; }
+    .tipo-btn {
+      padding: 9px 18px; border: 1.5px solid var(--border);
+      border-radius: 6px; cursor: pointer;
+      font-family: var(--font); font-size: 13px; font-weight: 500;
+      color: var(--muted); background: #f7f9fc;
+      transition: all .14s; user-select: none;
+    }
+    .tipo-btn:hover { border-color: var(--acc); color: var(--text); }
+    .tipo-btn.on { background: var(--head); border-color: var(--head); color: #fff; font-weight: 600; }
+
+    /* ── TABLE ───────────────────────────────────────────── */
+    .tbl-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    thead tr { background: var(--tbl-head); }
+    thead th {
+      padding: 10px 12px; text-align: left;
+      font-size: 11px; font-weight: 600;
+      color: #c8d8e8; letter-spacing: .4px; text-transform: uppercase;
+    }
+    thead th.right { text-align: right; }
+    tbody tr { border-bottom: 1px solid #edf1f7; transition: background .1s; }
+    tbody tr:hover { background: #f7f9fc; }
+    tbody tr.row-alert { background: #fff8ed; }
+    tbody td { padding: 6px 8px; vertical-align: middle; }
+    tbody td.center { text-align: center; width: 46px; }
+
+    .td-in, .td-sel {
+      width: 100%; padding: 7px 10px;
+      border: 1.5px solid var(--border); border-radius: 5px;
+      font-family: var(--font); font-size: 13px; color: var(--text);
+      background: #f7f9fc; transition: border-color .14s;
+    }
+    .td-in:focus, .td-sel:focus { outline: none; border-color: var(--acc); background: #fff; }
+    .td-sel.missing { border-color: #e8a040; }
+    .td-money { text-align: right; font-family: var(--mono); font-size: 13px; }
+
+    /* ── BUTTONS ─────────────────────────────────────────── */
+    .btn-add {
+      margin-top: 12px; padding: 9px 18px;
+      background: #1a4da0; color: #fff; border: none;
+      border-radius: 6px; font-family: var(--font);
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      transition: background .14s;
+    }
+    .btn-add:hover { background: #153d82; }
+
+    .btn-del {
+      background: none; border: none; color: #c0392b;
+      font-size: 15px; cursor: pointer; padding: 3px 8px;
+      border-radius: 4px; line-height: 1; font-family: var(--mono);
+      transition: background .1s;
+    }
+    .btn-del:hover { background: #fdecea; }
+
+    /* ── PAYMENT CARDS ───────────────────────────────────── */
+    .pay-board { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+    .pay-card  { border-radius: var(--radius); padding: 16px 14px 14px; color: #fff; text-align: center; }
+    .pc-method { font-size: 11px; font-weight: 700; letter-spacing: .4px; opacity: .8; margin-bottom: 10px; }
+    .pc-valor  { font-family: var(--mono); font-size: 17px; font-weight: 700; line-height: 1.1; }
+    .pc-line   { height: 1px; background: rgba(255,255,255,.22); margin: 10px 0; }
+    .pc-disc-lbl { font-size: 9px; opacity: .65; letter-spacing: .4px; text-transform: uppercase; }
+    .pc-disc-val { font-family: var(--mono); font-size: 14px; font-weight: 600; margin-top: 3px; color: #b5f3ce; }
+
+    .pc1 { background: var(--p1); } .pc2 { background: var(--p2); }
+    .pc3 { background: var(--p3); } .pc4 { background: var(--p4); }
+    .pc5 { background: var(--p5); }
+
+    /* ── SELEÇÃO DA FORMA DE PAGAMENTO ────────────────────── */
+    .pay-card { position: relative; cursor: pointer; transition: transform .12s, box-shadow .12s; }
+    .pay-card:hover { transform: translateY(-2px); }
+    .pay-card.selected { box-shadow: 0 0 0 3px rgba(255,255,255,.9), 0 6px 16px rgba(0,0,0,.3); }
+    .pc-radio {
+      position: absolute; top: 10px; right: 10px;
+      width: 17px; height: 17px; cursor: pointer; accent-color: #fff;
+    }
+    .pc-badge {
+      display: none; margin-top: 10px; font-size: 9px; font-weight: 700;
+      letter-spacing: .5px; text-transform: uppercase;
+      background: rgba(255,255,255,.25); padding: 3px 8px; border-radius: 4px;
+    }
+    .pay-card.selected .pc-badge { display: inline-block; }
+
+    /* ── PARCELAMENTO (SISTEMA PRICE) ──────────────────────── */
+    .parc-hint { display: block; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+    .parc-hint.erro { color: #b23a2e; font-weight: 600; }
+    input.field.erro { border-color: #b23a2e !important; background: #fdf1f0 !important; }
+    .parc-erro-box {
+      margin-top: 14px; padding: 12px 16px; border-radius: 6px;
+      background: #fdf1f0; border: 1px solid #e8b4ac; color: #8b1a1a;
+      font-size: 12.5px; font-weight: 500; line-height: 1.5;
+    }
+    .parc-stats {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+      margin: 16px 0;
+    }
+    .parc-stat {
+      background: #f7f9fc; border: 1px solid var(--border);
+      border-radius: 6px; padding: 12px 14px;
+    }
+    .parc-stat-lbl {
+      font-size: 10px; font-weight: 600; color: var(--muted);
+      letter-spacing: .4px; text-transform: uppercase; margin-bottom: 6px;
+    }
+    .parc-stat-val { font-family: var(--mono); font-size: 16px; font-weight: 700; color: var(--text); }
+    .parc-forma-tag {
+      font-size: 11px; font-weight: 600; color: var(--acc);
+      background: #eaf5fd; border: 1px solid #bfe0f5;
+      padding: 3px 10px; border-radius: 4px; margin-left: 8px;
+    }
+
+    /* ── FOOTER ──────────────────────────────────────────── */
+    .footer-bar { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; }
+    .footer-note { font-size: 11px; color: #8899aa; }
+    .btn-pdf {
+      padding: 11px 26px; background: #8b1a1a; color: #fff;
+      border: none; border-radius: 6px; font-family: var(--font);
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      transition: background .14s;
+    }
+    .btn-pdf:hover { background: #701414; }
+    .btn-pdf:disabled { background: #94a3b8; cursor: not-allowed; }
+
+    /* ── TAG de política carregada ───────────────────────── */
+    #pol-tag {
+      display: none; font-size: 11px; color: #2d7a45;
+      background: #d4edda; border: 1px solid #a8d5b5;
+      border-radius: 4px; padding: 3px 10px;
+      font-weight: 600;
+    }
+
+    /* ── PRINT / PDF ─────────────────────────────────────── */
+    @media print {
+      body { background: #fff; }
+      #header { position: static; }
+      .no-print { display: none !important; }
+      .wrap { max-width: 100%; padding: 10px; }
+      .section { border: 1px solid var(--border); }
+      .kpi, .pay-card, #header {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- LOADING -->
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <div class="loading-txt">Carregando políticas de desconto…</div>
+  </div>
+
+  <!-- ERRO -->
+  <div id="erro-overlay">
+    <div class="erro-box">
+      <h2>⚠️ Arquivo não encontrado</h2>
+      <p>
+        Não foi possível carregar o arquivo <code>politicas.xlsx</code>.<br><br>
+        Verifique se o arquivo está na raiz do repositório GitHub e se o
+        GitHub Pages está publicado corretamente.<br><br>
+        Para testar localmente, utilize um servidor HTTP:<br>
+        <code>python -m http.server 8080</code>
+      </p>
+    </div>
+  </div>
+
+  <!-- SIMULADOR -->
+  <div id="simulador">
+
+    <div id="header">
+      <div>
+        <div class="brand-name">Converty Recuperadora de Ativos</div>
+        <div class="brand-sub">Simulador Interno de Descontos em Negociações</div>
+      </div>
+      <div>
+        <div class="clock-date" id="clock-date">—</div>
+        <div class="clock-time" id="clock-time">—</div>
+      </div>
+    </div>
+
+    <div class="wrap">
+
+      <!-- KPIs -->
+      <div class="top-strip">
+        <div class="kpi kpi-1">
+          <div class="kpi-label">Valor Total dos Contratos</div>
+          <div class="kpi-value" id="kpi-total">R$ 0,00</div>
+          <div class="kpi-sub">Soma dos valores originais</div>
+        </div>
+        <div class="kpi kpi-2">
+          <div class="kpi-label">Quantidade de Contratos</div>
+          <div class="kpi-value" id="kpi-qty">0</div>
+          <div class="kpi-sub">contratos informados</div>
+        </div>
+        <div class="kpi kpi-3">
+          <div class="kpi-label">Valor com Melhor Desconto</div>
+          <div class="kpi-value" id="kpi-best">R$ 0,00</div>
+          <div class="kpi-sub">pagamento à vista</div>
+        </div>
+      </div>
+
+      <!-- IDENTIFICAÇÃO -->
+      <div class="section">
+        <div class="section-title">
+          Identificação
+          <span id="pol-tag">✓ Políticas carregadas</span>
+        </div>
+        <div class="form-row">
+          <div class="fg grow">
+            <label for="nome-devedor">Nome do Devedor</label>
+            <input class="field" type="text" id="nome-devedor" placeholder="Nome completo do devedor">
+          </div>
+          <div class="fg">
+            <label>Tipo de Devedor</label>
+            <div class="tipo-sel">
+              <div class="tipo-btn on"  id="btn-ex"    onclick="setTipo('ex-colaborador')">Ex Colaborador</div>
+              <div class="tipo-btn"     id="btn-ativo"  onclick="setTipo('colaborador-ativo')">Colaborador Ativo</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONTRATOS -->
+      <div class="section">
+        <div class="section-title">Contratos</div>
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:190px;">Nº do Contrato</th>
+                <th style="width:220px;">Faixa de Atraso</th>
+                <th class="right" style="width:150px;">Valor (R$)</th>
+                <th class="no-print" style="width:46px;"></th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+        <button class="btn-add no-print" onclick="addRow()">＋ Adicionar Contrato</button>
+      </div>
+
+      <!-- SIMULAÇÃO -->
+      <div class="section">
+        <div class="section-title">Simulação por Forma de Pagamento</div>
+        <div class="pay-board">
+          <div class="pay-card pc1" id="pc-1" onclick="selecionarForma(1)">
+            <input type="radio" name="forma-pagto" id="fp-1" class="pc-radio no-print"
+                   title="Selecionar esta forma de pagamento" onclick="event.stopPropagation(); selecionarForma(1)">
+            <div class="pc-method">À Vista</div>
+            <div class="pc-valor" id="pv-1">R$ 0,00</div>
+            <div class="pc-line"></div>
+            <div class="pc-disc-lbl">Desconto concedido</div>
+            <div class="pc-disc-val" id="pd-1">R$ 0,00</div>
+            <div class="pc-badge">✓ Selecionada</div>
+          </div>
+          <div class="pay-card pc2" id="pc-2" onclick="selecionarForma(2)">
+            <input type="radio" name="forma-pagto" id="fp-2" class="pc-radio no-print"
+                   title="Selecionar esta forma de pagamento" onclick="event.stopPropagation(); selecionarForma(2)">
+            <div class="pc-method">Até 3 Parcelas</div>
+            <div class="pc-valor" id="pv-2">R$ 0,00</div>
+            <div class="pc-line"></div>
+            <div class="pc-disc-lbl">Desconto concedido</div>
+            <div class="pc-disc-val" id="pd-2">R$ 0,00</div>
+            <div class="pc-badge">✓ Selecionada</div>
+          </div>
+          <div class="pay-card pc3" id="pc-3" onclick="selecionarForma(3)">
+            <input type="radio" name="forma-pagto" id="fp-3" class="pc-radio no-print"
+                   title="Selecionar esta forma de pagamento" onclick="event.stopPropagation(); selecionarForma(3)">
+            <div class="pc-method">De 4 a 6 Parcelas</div>
+            <div class="pc-valor" id="pv-3">R$ 0,00</div>
+            <div class="pc-line"></div>
+            <div class="pc-disc-lbl">Desconto concedido</div>
+            <div class="pc-disc-val" id="pd-3">R$ 0,00</div>
+            <div class="pc-badge">✓ Selecionada</div>
+          </div>
+          <div class="pay-card pc4" id="pc-4" onclick="selecionarForma(4)">
+            <input type="radio" name="forma-pagto" id="fp-4" class="pc-radio no-print"
+                   title="Selecionar esta forma de pagamento" onclick="event.stopPropagation(); selecionarForma(4)">
+            <div class="pc-method">De 7 a 10 Parcelas</div>
+            <div class="pc-valor" id="pv-4">R$ 0,00</div>
+            <div class="pc-line"></div>
+            <div class="pc-disc-lbl">Desconto concedido</div>
+            <div class="pc-disc-val" id="pd-4">R$ 0,00</div>
+            <div class="pc-badge">✓ Selecionada</div>
+          </div>
+          <div class="pay-card pc5" id="pc-5" onclick="selecionarForma(5)">
+            <input type="radio" name="forma-pagto" id="fp-5" class="pc-radio no-print"
+                   title="Selecionar esta forma de pagamento" onclick="event.stopPropagation(); selecionarForma(5)">
+            <div class="pc-method">Mais de 10 Parcelas</div>
+            <div class="pc-valor" id="pv-5">R$ 0,00</div>
+            <div class="pc-line"></div>
+            <div class="pc-disc-lbl">Desconto concedido</div>
+            <div class="pc-disc-val" id="pd-5">R$ 0,00</div>
+            <div class="pc-badge">✓ Selecionada</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PARCELAMENTO (SISTEMA PRICE) -->
+      <div class="section" id="sec-parcelamento" style="display:none;">
+        <div class="section-title">
+          Configuração do Parcelamento
+          <span class="parc-forma-tag" id="parc-forma-tag"></span>
+        </div>
+
+        <div class="form-row">
+          <div class="fg">
+            <label for="parc-taxa">Taxa de Juros do Parcelamento (% a.m.)</label>
+            <input class="field" type="text" id="parc-taxa" inputmode="decimal"
+                   placeholder="0,00" oninput="calcularParcelamento()">
+          </div>
+          <div class="fg">
+            <label for="parc-qtd">Quantidade de Parcelas</label>
+            <input class="field" type="text" id="parc-qtd" inputmode="numeric" placeholder="0"
+                   oninput="this.value=this.value.replace(/[^0-9]/g,''); calcularParcelamento()">
+            <span class="parc-hint" id="parc-qtd-hint"></span>
+          </div>
+          <div class="fg grow">
+            <label for="parc-entrada">Valor de Entrada (R$)</label>
+            <input class="field" type="text" id="parc-entrada" inputmode="decimal" placeholder="0,00"
+                   oninput="calcularParcelamento()" onfocus="focusValor(this)" onblur="blurValor(this)">
+          </div>
+        </div>
+
+        <div id="parc-erro-box" class="parc-erro-box" style="display:none;"></div>
+
+        <div class="parc-stats" id="parc-stats" style="display:none;">
+          <div class="parc-stat">
+            <div class="parc-stat-lbl">Saldo com Desconto</div>
+            <div class="parc-stat-val" id="parc-saldo-desc">R$ 0,00</div>
+          </div>
+          <div class="parc-stat">
+            <div class="parc-stat-lbl">Valor Financiado</div>
+            <div class="parc-stat-val" id="parc-financiado">R$ 0,00</div>
+          </div>
+          <div class="parc-stat">
+            <div class="parc-stat-lbl">Valor da Parcela</div>
+            <div class="parc-stat-val" id="parc-valor-parcela">R$ 0,00</div>
+          </div>
+          <div class="parc-stat">
+            <div class="parc-stat-lbl">Total de Juros</div>
+            <div class="parc-stat-val" id="parc-total-juros">R$ 0,00</div>
+          </div>
+        </div>
+
+        <div class="tbl-wrap" id="parc-tbl-wrap" style="display:none;">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:56px;">Nº</th>
+                <th style="width:120px;">Vencimento</th>
+                <th class="right">Valor da Parcela</th>
+                <th class="right">Juros</th>
+                <th class="right">Amortização</th>
+                <th class="right">Saldo Devedor</th>
+              </tr>
+            </thead>
+            <tbody id="parc-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- RODAPÉ -->
+      <div class="footer-bar no-print">
+        <span class="footer-note">Converty Recuperadora de Ativos — Uso Interno</span>
+        <button class="btn-pdf" id="btn-pdf" onclick="gerarPDF()">📄 Salvar Simulação em PDF</button>
+      </div>
+
+    </div><!-- /wrap -->
+  </div><!-- /simulador -->
+
+
+<script>
+/* ================================================================
+   ESTADO GLOBAL
+   ================================================================ */
+let POLITICAS  = {};   // { 'ex-colaborador': { 'faixa': { avista, ate3, ... } } }
+let FAIXAS_MAP = {};   // { 'ex-colaborador': ['faixa1','faixa2',...] }
+let tipoAtual  = 'ex-colaborador';
+let nextId     = 0;
+
+let formaSelecionada = null;              // 1..5 — forma de pagamento escolhida pelo cobrador
+let ULTIMO_S          = [0, 0, 0, 0, 0];  // últimos totais com desconto, por forma (À Vista..Mais de 10)
+
+// Faixas de nº de parcelas permitidas por forma de pagamento (mesma regra dos cards acima)
+const FAIXAS_PARC = {
+  1: { label: 'À Vista',             parcelavel: false, min: 0,  max: 0  },
+  2: { label: 'Até 3 Parcelas',      parcelavel: true,  min: 1,  max: 3  },
+  3: { label: 'De 4 a 6 Parcelas',   parcelavel: true,  min: 4,  max: 6  },
+  4: { label: 'De 7 a 10 Parcelas',  parcelavel: true,  min: 7,  max: 10 },
+  5: { label: 'Mais de 10 Parcelas', parcelavel: true,  min: 11, max: 60 }
+};
+
+/* ================================================================
+   RELÓGIO
+   ================================================================ */
+function tick() {
+  const n = new Date();
+  document.getElementById('clock-date').textContent =
+    n.toLocaleDateString('pt-BR', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
+  document.getElementById('clock-time').textContent =
+    n.toLocaleTimeString('pt-BR');
+}
+setInterval(tick, 1000);
+tick();
+
+/* ================================================================
+   LEITURA DO politicas.xlsx
+   ================================================================ */
+function normalizeTipo(raw) {
+  const s = raw.toLowerCase().trim();
+  if (s.includes('ex'))    return 'ex-colaborador';
+  if (s.includes('ativo')) return 'colaborador-ativo';
+  return s.replace(/[^a-z0-9]+/g, '-');
+}
+
+function normalizePct(val) {
+  // Aceita inteiro (15 = 15%) ou decimal (0.15 = 15%)
+  const n = parseFloat(val) || 0;
+  return n > 1 ? n : n * 100;
+}
+
+async function carregarPoliticas() {
+  const resp = await fetch('./politicas.xlsx');
+  if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+  const buffer = await resp.arrayBuffer();
+  const wb     = XLSX.read(buffer, { type: 'array' });
+  const ws     = wb.Sheets[wb.SheetNames[0]];            // primeira aba
+  const rows   = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+  const politicas  = {};
+  const faixasMap  = {};
+
+  for (let i = 1; i < rows.length; i++) {              // i=0 é cabeçalho
+    const row   = rows[i];
+    const tipo  = String(row[0] || '').trim();
+    const faixa = String(row[1] || '').trim();
+    if (!tipo || !faixa) continue;
+
+    const key = normalizeTipo(tipo);
+    if (!politicas[key]) { politicas[key] = {}; faixasMap[key] = []; }
+    if (!politicas[key][faixa]) faixasMap[key].push(faixa);  // mantém ordem
+
+    politicas[key][faixa] = {
+      avista:  normalizePct(row[2]),
+      ate3:    normalizePct(row[3]),
+      de4a6:   normalizePct(row[4]),
+      de7a10:  normalizePct(row[5]),
+      mais10:  normalizePct(row[6])
+    };
+  }
+
+  return { politicas, faixasMap };
+}
+
+/* ================================================================
+   TIPO DE DEVEDOR
+   ================================================================ */
+function setTipo(t) {
+  tipoAtual = t;
+  document.getElementById('btn-ex').classList.toggle('on',    t === 'ex-colaborador');
+  document.getElementById('btn-ativo').classList.toggle('on', t === 'colaborador-ativo');
+  atualizarTodosSelects();
+  calcular();
+}
+
+/* ================================================================
+   MOEDA
+   ================================================================ */
+function parseBRL(str) {
+  if (!str) return 0;
+  const s    = String(str).replace(/[^\d,\.]/g, '');
+  const cPos = s.lastIndexOf(',');
+  const dPos = s.lastIndexOf('.');
+  return parseFloat(
+    cPos > dPos
+      ? s.replace(/\./g, '').replace(',', '.')
+      : s.replace(/,/g, '')
+  ) || 0;
+}
+function toBRL(v) {
+  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+function parsePct(str) {
+  if (!str) return 0;
+  const n = parseFloat(String(str).replace(/[^\d,\.\-]/g, '').replace(',', '.'));
+  return isNaN(n) ? 0 : n;
+}
+function focusValor(el) {
+  const v = parseBRL(el.value);
+  el.value = v > 0 ? v.toFixed(2).replace('.', ',') : '';
+  el.select();
+}
+function blurValor(el) {
+  const v = parseBRL(el.value);
+  if (v > 0) el.value = v.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+  calcular();
+}
+
+/* ================================================================
+   FAIXAS DINÂMICAS
+   ================================================================ */
+function getFaixas() {
+  return FAIXAS_MAP[tipoAtual] || [];
+}
+
+function opsFaixa(valorAtual = '') {
+  const faixas = getFaixas();
+  if (faixas.length === 0) return '<option value="">Aguardando políticas…</option>';
+  return '<option value="">Selecione a faixa…</option>' +
+    faixas.map(f =>
+      `<option value="${f}"${f === valorAtual ? ' selected' : ''}>${f}</option>`
+    ).join('');
+}
+
+function atualizarTodosSelects() {
+  document.querySelectorAll('#tbody select').forEach(sel => {
+    const atual = sel.value;
+    sel.innerHTML = opsFaixa(atual);
+  });
+}
+
+/* ================================================================
+   LINHAS DA TABELA
+   ================================================================ */
+function addRow() {
+  const id = ++nextId;
+  const tr = document.createElement('tr');
+  tr.id = 'r' + id;
+  tr.innerHTML = `
+    <td><input class="td-in"    type="text" placeholder="Ex: 2024/001234" oninput="calcular()"></td>
+    <td><select class="td-sel"  onchange="calcular()">${opsFaixa()}</select></td>
+    <td><input class="td-in td-money" type="text" inputmode="decimal"
+               placeholder="0,00" oninput="calcular()"
+               onfocus="focusValor(this)" onblur="blurValor(this)"></td>
+    <td class="center no-print">
+      <button class="btn-del" onclick="removeRow(${id})" title="Remover">✕</button>
+    </td>
+  `;
+  document.getElementById('tbody').appendChild(tr);
+  tr.querySelector('input').focus();
+  calcular();
+}
+
+function removeRow(id) {
+  document.getElementById('r' + id)?.remove();
+  calcular();
+}
+
+/* ================================================================
+   CÁLCULO
+   ================================================================ */
+function calcular() {
+  let totalOrig = 0, qty = 0;
+  let s = [0, 0, 0, 0, 0];
+
+  document.querySelectorAll('#tbody tr').forEach(row => {
+    const sel   = row.querySelector('select');
+    const vinp  = row.querySelector('.td-money');
+    const faixa = sel?.value || '';
+    const valor = parseBRL(vinp?.value || '');
+
+    if (valor <= 0) {
+      row.classList.remove('row-alert');
+      sel?.classList.remove('missing');
+      return;
+    }
+
+    qty++;
+    totalOrig += valor;
+
+    const pol = POLITICAS[tipoAtual]?.[faixa];
+    if (pol) {
+      s[0] += valor * (1 - pol.avista  / 100);
+      s[1] += valor * (1 - pol.ate3    / 100);
+      s[2] += valor * (1 - pol.de4a6   / 100);
+      s[3] += valor * (1 - pol.de7a10  / 100);
+      s[4] += valor * (1 - pol.mais10  / 100);
+      row.classList.remove('row-alert');
+      sel?.classList.remove('missing');
+    } else {
+      // Faixa não selecionada: conta sem desconto e sinaliza
+      s[0] += valor; s[1] += valor; s[2] += valor;
+      s[3] += valor; s[4] += valor;
+      row.classList.add('row-alert');
+      if (valor > 0) sel?.classList.add('missing');
+    }
+  });
+
+  document.getElementById('kpi-total').textContent = toBRL(totalOrig);
+  document.getElementById('kpi-qty').textContent   = qty;
+  document.getElementById('kpi-best').textContent  = toBRL(s[0]);
+
+  for (let i = 1; i <= 5; i++) {
+    document.getElementById('pv-' + i).textContent = toBRL(s[i - 1]);
+    document.getElementById('pd-' + i).textContent = toBRL(totalOrig - s[i - 1]);
+  }
+
+  ULTIMO_S = s.slice();
+  if (formaSelecionada) calcularParcelamento();
+}
+
+/* ================================================================
+   FORMA DE PAGAMENTO SELECIONADA / PARCELAMENTO (SISTEMA PRICE)
+   ================================================================ */
+function selecionarForma(n) {
+  formaSelecionada = n;
+
+  document.querySelectorAll('.pay-card').forEach((card, idx) => {
+    card.classList.toggle('selected', idx + 1 === n);
+  });
+  const radio = document.getElementById('fp-' + n);
+  if (radio) radio.checked = true;
+
+  const info = FAIXAS_PARC[n];
+  const sec  = document.getElementById('sec-parcelamento');
+
+  if (!info.parcelavel) {
+    // À Vista: pagamento único, sem cronograma de parcelamento
+    sec.style.display = 'none';
+    return;
+  }
+
+  sec.style.display = 'block';
+  document.getElementById('parc-forma-tag').textContent = info.label;
+
+  const qtdField = document.getElementById('parc-qtd');
+  const qtdHint  = document.getElementById('parc-qtd-hint');
+  qtdField.classList.remove('erro');
+  qtdHint.classList.remove('erro');
+  qtdHint.textContent = `Faixa permitida para "${info.label}": ${info.min} a ${info.max} parcelas`;
+
+  calcularParcelamento();
+}
+
+// Sistema Price (parcelas fixas): PMT = PV * i / (1 - (1+i)^-n)
+function priceComputePMT(pv, i, n) {
+  if (n <= 0) return 0;
+  if (i === 0) return pv / n;
+  return pv * i / (1 - Math.pow(1 + i, -n));
+}
+
+function calcularParcelamento() {
+  if (!formaSelecionada) return;
+  const info = FAIXAS_PARC[formaSelecionada];
+  if (!info.parcelavel) return; // à vista — sem cronograma
+
+  const erroBox  = document.getElementById('parc-erro-box');
+  const statsBox = document.getElementById('parc-stats');
+  const tblWrap  = document.getElementById('parc-tbl-wrap');
+  const qtdField = document.getElementById('parc-qtd');
+  const qtdHint  = document.getElementById('parc-qtd-hint');
+
+  function limpar(msg) {
+    erroBox.style.display  = 'block';
+    erroBox.textContent    = msg;
+    statsBox.style.display = 'none';
+    tblWrap.style.display  = 'none';
+    document.getElementById('parc-tbody').innerHTML = '';
+  }
+
+  qtdField.classList.remove('erro');
+  qtdHint.classList.remove('erro');
+
+  const saldoDesc = ULTIMO_S[formaSelecionada - 1] || 0;
+  const taxaPct   = parsePct(document.getElementById('parc-taxa').value);
+  const qtdRaw    = document.getElementById('parc-qtd').value;
+  const qtd       = parseInt(qtdRaw, 10) || 0;
+  const entrada   = parseBRL(document.getElementById('parc-entrada').value);
+
+  if (saldoDesc <= 0) {
+    limpar('Informe os contratos (com valor e faixa de atraso) antes de configurar o parcelamento.');
+    return;
+  }
+  if (qtdRaw === '' || qtd === 0) {
+    // aguardando o cobrador preencher a quantidade de parcelas
+    erroBox.style.display  = 'none';
+    statsBox.style.display = 'none';
+    tblWrap.style.display  = 'none';
+    return;
+  }
+  if (qtd < info.min || qtd > info.max) {
+    qtdField.classList.add('erro');
+    qtdHint.classList.add('erro');
+    limpar(`Quantidade de parcelas inválida: para a forma "${info.label}" o número de parcelas deve estar entre ${info.min} e ${info.max}.`);
+    return;
+  }
+  if (taxaPct < 0) {
+    limpar('A taxa de juros do parcelamento não pode ser negativa.');
+    return;
+  }
+  if (entrada < 0) {
+    limpar('O valor de entrada não pode ser negativo.');
+    return;
+  }
+  if (entrada >= saldoDesc) {
+    limpar('O valor de entrada não pode ser maior ou igual ao saldo devedor com desconto.');
+    return;
+  }
+
+  erroBox.style.display = 'none';
+
+  const pv  = saldoDesc - entrada;   // saldo devedor com desconto, já abatida a entrada
+  const i   = taxaPct / 100;         // taxa mensal em decimal
+  const pmt = priceComputePMT(pv, i, qtd);
+
+  let saldo = pv, totalJuros = 0;
+  const linhas = [];
+  const venc = new Date();
+  venc.setDate(venc.getDate() + 30); // 1ª parcela: daqui a 30 dias
+
+  for (let k = 1; k <= qtd; k++) {
+    const juros = saldo * i;
+    let amort   = pmt - juros;
+    if (k === qtd) amort = saldo;    // fecha o arredondamento na última parcela
+    saldo = Math.max(saldo - amort, 0);
+    totalJuros += juros;
+
+    linhas.push({ n: k, venc: new Date(venc), parcela: juros + amort, juros, amort, saldo });
+    venc.setDate(venc.getDate() + 30); // parcelas seguintes, mensais
+  }
+
+  document.getElementById('parc-saldo-desc').textContent    = toBRL(saldoDesc);
+  document.getElementById('parc-financiado').textContent    = toBRL(pv);
+  document.getElementById('parc-valor-parcela').textContent = toBRL(pmt);
+  document.getElementById('parc-total-juros').textContent   = toBRL(totalJuros);
+  statsBox.style.display = 'grid';
+
+  document.getElementById('parc-tbody').innerHTML = linhas.map(l => `
+    <tr>
+      <td class="center">${l.n}</td>
+      <td>${l.venc.toLocaleDateString('pt-BR')}</td>
+      <td class="td-money">${toBRL(l.parcela)}</td>
+      <td class="td-money">${toBRL(l.juros)}</td>
+      <td class="td-money">${toBRL(l.amort)}</td>
+      <td class="td-money">${toBRL(l.saldo)}</td>
+    </tr>
+  `).join('');
+  tblWrap.style.display = 'block';
+}
+
+/* ================================================================
+   GERAÇÃO DE PDF
+   ================================================================ */
+function gerarPDF() {
+  const nome  = (document.getElementById('nome-devedor').value || 'Devedor').trim();
+  const data  = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
+  const fname = `Simulacao_Converty_${nome.replace(/\s+/g, '_')}_${data}.pdf`;
+
+  const btn = document.getElementById('btn-pdf');
+  btn.textContent = '⏳ Gerando PDF…';
+  btn.disabled    = true;
+
+  html2pdf()
+    .set({
+      margin:      0.35,
+      filename:    fname,
+      image:       { type: 'jpeg', quality: 0.97 },
+      html2canvas: { scale: 2, useCORS: true, logging: false },
+      jsPDF:       { unit: 'in', format: 'a4', orientation: 'landscape' }
+    })
+    .from(document.getElementById('simulador'))
+    .save()
+    .then(() => {
+      btn.innerHTML = '📄 Salvar Simulação em PDF';
+      btn.disabled  = false;
+    });
+}
+
+/* ================================================================
+   INICIALIZAÇÃO — carrega xlsx e inicia o simulador
+   ================================================================ */
+async function init() {
+  try {
+    const { politicas, faixasMap } = await carregarPoliticas();
+    POLITICAS  = politicas;
+    FAIXAS_MAP = faixasMap;
+
+    // Esconde loading e mostra tag de sucesso
+    document.getElementById('loading-overlay').style.display = 'none';
+    const tag = document.getElementById('pol-tag');
+    tag.style.display = 'inline-block';
+    setTimeout(() => { tag.style.display = 'none'; }, 4000);
+
+    addRow();
+
+  } catch (err) {
+    console.error('Falha ao carregar politicas.xlsx:', err);
+    document.getElementById('loading-overlay').style.display = 'none';
+    document.getElementById('erro-overlay').style.display    = 'flex';
+  }
+}
+
+init();
+</script>
+</body>
+</html>
